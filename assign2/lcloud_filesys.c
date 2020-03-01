@@ -496,9 +496,17 @@ int lcread(LcFHandle fh, char *buf, size_t len) {
             // Reading the last block of the data file
             if (readFile.blocks[blockIndex+1] == 0) {
                 // Read the remainder of the file
-                memcpy(&buf[bufOffset], &readBuffer[offsetByteFromBlock], readFile.size % LC_DEVICE_BLOCK_SIZE);
-                // Set the cursor to the end of the file
-                readFile.pos = readFile.size;
+                if (len - bufOffset > (readFile.size % LC_DEVICE_BLOCK_SIZE)) {
+                    // If it is greater than the remainder of the file, read to the end
+                    memcpy(&buf[bufOffset], &readBuffer[offsetByteFromBlock], readFile.size % LC_DEVICE_BLOCK_SIZE);
+                    // Set the cursor to the end of the file
+                    readFile.pos = readFile.size;
+                } else {
+                    // Doesn't read to the end of the file
+                    memcpy(&buf[bufOffset], &readBuffer[offsetByteFromBlock], len - bufOffset);
+                    // Set the cursor to the end of the read
+                    readFile.pos += len;
+                }
                 // Save the file and return the length
                 if (saveFile(readFile) != 0) {
                     return -1;
