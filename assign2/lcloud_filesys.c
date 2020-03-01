@@ -23,7 +23,6 @@
 #define BLOCKS_PER_DEVICE (LC_DEVICE_NUMBER_BLOCKS*LC_DEVICE_NUMBER_SECTORS) // Define max blocks per device
 #define MAX_BLOCKS (LC_DEVICE_NUMBER_BLOCKS*LC_DEVICE_NUMBER_SECTORS*MAX_DEVICES) // Define max blocks on a system
 
-//
 // File system interface implementation
 // Create a boolean class
 typedef enum {false, true} bool;
@@ -46,7 +45,7 @@ typedef struct {
     LC_C2 C2;
     uint16_t D0;
     uint16_t D1;
-} LcUnpackedRegisters;
+} LCUnpackedRegisters;
 
 
 // Create a class for a file type
@@ -57,11 +56,11 @@ typedef struct {
     uint32_t size; // File size
     uint16_t blocks[MAX_BLOCKS]; // Block array (Uses same math as fileCursor) (So yeah memory efficient is lame)
     bool open;
-} LcFFile;
+} LCFile;
 
 // Declare global variables
 bool lc_on = false; // Lioncloud on or off
-LcFFile files[MAX_FILES]; // Create an array of MAX_FILES items to keep track for unique file handles
+LCFile files[MAX_FILES]; // Create an array of MAX_FILES items to keep track for unique file handles
 uint8_t devices[MAX_DEVICES] = { [0 ... 15] = -1}; // Create an array of MAX_DEVICES items to keep track of devices
 // A cursor which tracks last block available to place file, assumes file is at least 1 block
 
@@ -88,7 +87,7 @@ LcFHandle generateHandle(void) {
             maxHandle = files[i].handle;
         }
     }
-    return (maxHandle+1);
+    return (++maxHandle);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -99,8 +98,8 @@ LcFHandle generateHandle(void) {
 // Inputs       : handle - The file handle provided
 // Outputs      : A file; has a size of -1 if there was an error
 
-LcFFile retrieveFileH(LcFHandle handle) {
-    LcFFile errFile;
+LCFile retrieveFileH(LcFHandle handle) {
+    LCFile errFile;
     errFile.size = -1;
     for (int i = 0; i < MAX_FILES; i++) {
         if (files[i].handle == handle) {
@@ -118,8 +117,8 @@ LcFFile retrieveFileH(LcFHandle handle) {
 // Inputs       : *path - A pointer to a string array for the path
 // Outputs      : A file; has a size of -1 if there was an error
 
-LcFFile retrieveFileP(const char *path) {
-    LcFFile errFile;
+LCFile retrieveFileP(const char *path) {
+    LCFile errFile;
     errFile.size = -1;
     for (int i = 0; i < MAX_FILES; i++) {
         if (files[i].path == path) {
@@ -137,7 +136,7 @@ LcFFile retrieveFileP(const char *path) {
 // Inputs       : file - The file to be saved
 // Outputs      : 0 if successful (file found) or -1 if the file ouldn't be found
 
-int saveFile(LcFFile file) {
+int saveFile(LCFile file) {
     for (int i = 0; i < MAX_FILES; i++) {
         if (files[i].handle == file.handle) {
             files[i] = file;
@@ -269,25 +268,25 @@ LCloudRegisterFrame packRegisters(LC_B0 B0, LC_B1 B1, LC_C0 C0, uint8_t C1, LC_C
 // Description  : A function to unpack a response from the IO Bus
 //
 // Inputs       : registerFrame - The response frame from the bus
-// Outputs      : returnRegisters - An unpacked version of the response with type LcUnpackedRegisters
+// Outputs      : returnRegisters - An unpacked version of the response with type LCUnpackedRegisters
 
-LcUnpackedRegisters unpackRegisters(LCloudRegisterFrame registerFrame) {
+LCUnpackedRegisters unpackRegisters(LCloudRegisterFrame registerFrame) {
     // Copy values from registerFrame in reverse order for easy evaluation
-    LcUnpackedRegisters returnRegisters;
+    LCUnpackedRegisters returnRegisters;
     returnRegisters.D1 = registerFrame & 0xFFFF;
-    registerFrame = registerFrame >> 16;
+    registerFrame >>= 16;
     returnRegisters.D0 = registerFrame & 0xFFFF;
-    registerFrame = registerFrame >> 16;
+    registerFrame >>= 16;
     returnRegisters.C2 = registerFrame & 0xFF;
-    registerFrame = registerFrame >> 8;
+    registerFrame >>= 8;
     returnRegisters.C1 = registerFrame & 0xFF;
-    registerFrame = registerFrame >> 8;
+    registerFrame >>= 8;
     returnRegisters.C0 = registerFrame & 0xFF;
-    registerFrame = registerFrame >> 8;
+    registerFrame >>= 8;
     returnRegisters.B1 = registerFrame & 0xF;
-    registerFrame = registerFrame >> 4;
+    registerFrame >>= 4;
     returnRegisters.B0 = registerFrame & 0xF;
-    registerFrame = registerFrame >> 4;
+    registerFrame >>= 4;
     return returnRegisters;
 }
 
@@ -302,10 +301,9 @@ LcUnpackedRegisters unpackRegisters(LCloudRegisterFrame registerFrame) {
 // Outputs      : 0 if successful, -1 if failure
 
 int writeDataBlock(uint8_t dev, uint16_t sec, uint16_t block, char *buf) {
-    LCloudRegisterFrame rawResp = lcloud_io_bus(packRegisters(SEND_B0, SEND_B1, LC_BLOCK_XFER, dev, LC_XFER_WRITE, sec, block), buf);
-    LcUnpackedRegisters resp = unpackRegisters(rawResp);
+    LCUnpackedRegisters resp = unpackRegisters(lcloud_io_bus(packRegisters(SEND_B0, SEND_B1, LC_BLOCK_XFER, dev, LC_XFER_WRITE, sec, block), buf));
     // If they don't return success, throw an error
-    if (resp.B1 != SUCCESS) {
+    if (resp.B0 != RECIEVE || resp.B1 != SUCCESS || resp.C0 != LC_BLOCK_XFER) {
         return -1;
     }
     return 0;
@@ -322,10 +320,9 @@ int writeDataBlock(uint8_t dev, uint16_t sec, uint16_t block, char *buf) {
 // Outputs      : 0 if successful, -1 if failure
 
 int readDataBlock(uint8_t dev, uint16_t sec, uint16_t block, char *buf) {
-    LCloudRegisterFrame rawResp = lcloud_io_bus(packRegisters(SEND_B0, SEND_B1, LC_BLOCK_XFER, dev, LC_XFER_READ, sec, block), buf);
-    LcUnpackedRegisters resp = unpackRegisters(rawResp);
+    LCUnpackedRegisters resp = unpackRegisters(lcloud_io_bus(packRegisters(SEND_B0, SEND_B1, LC_BLOCK_XFER, dev, LC_XFER_READ, sec, block), buf));
     // If they don't return success, throw an error
-    if (resp.B1 != SUCCESS) {
+    if (resp.B0 != RECIEVE || resp.B1 != SUCCESS || resp.C0 != LC_BLOCK_XFER) {
         return -1;
     }
     return 0;
@@ -358,20 +355,18 @@ int selectNextDevice(int lastDevice) {
 
 int powerOn(void) {
     // Send a power on signal (0) to devices
-    LCloudRegisterFrame rawResp = lcloud_io_bus(0, NULL);
-    LcUnpackedRegisters resp = unpackRegisters(rawResp);
+    LCUnpackedRegisters resp = unpackRegisters(lcloud_io_bus(0, NULL));
 
     // If they don't return success, throw an error
-    if (resp.B1 != SUCCESS) {
+    if (resp.B0 != RECIEVE || resp.B1 != SUCCESS || resp.C0 != LC_POWER_ON) {
         return -1;
     }
 
     // Probe available devices
-    rawResp = lcloud_io_bus(packRegisters(SEND_B0, SEND_B1, LC_DEVPROBE, 0, 0, 0, 0), NULL);
-    resp = unpackRegisters(rawResp);
+    resp = unpackRegisters(lcloud_io_bus(packRegisters(SEND_B0, SEND_B1, LC_DEVPROBE, 0, 0, 0, 0), NULL));
 
     // If they don't return success, throw an error
-    if (resp.B1 != SUCCESS) {
+    if (resp.B0 != RECIEVE || resp.B1 != SUCCESS || resp.C0 != LC_DEVPROBE || resp.D0 == 0) {
         return -1;
     }
 
@@ -408,7 +403,7 @@ LcFHandle lcopen(const char *path) {
     }
 
     // Check if file exists
-    LcFFile file = retrieveFileP(path);
+    LCFile file = retrieveFileP(path);
 
     // If not, create it
     if (file.size == -1) {
@@ -447,7 +442,7 @@ int lcread(LcFHandle fh, char *buf, size_t len) {
     }
 
     // Retrieve file to read and test if it exists and is open
-    LcFFile readFile = retrieveFileH(fh);
+    LCFile readFile = retrieveFileH(fh);
     if (readFile.open == false || readFile.size == -1) {
         return -1;
     }
@@ -499,9 +494,9 @@ int lcread(LcFHandle fh, char *buf, size_t len) {
             }
 
             // Reading the last block of the data file
-            if (readFile.pos+bufOffset+(blocksRead*LC_DEVICE_BLOCK_SIZE) > readFile.size) {
+            if (readFile.blocks[blockIndex+1] == 0) {
                 // Read the remainder of the file
-                memcpy(&buf[0], &readBuffer[offsetByteFromBlock], readFile.size-readFile.pos);
+                memcpy(&buf[bufOffset], &readBuffer[offsetByteFromBlock], readFile.size % LC_DEVICE_BLOCK_SIZE);
                 // Set the cursor to the end of the file
                 readFile.pos = readFile.size;
                 // Save the file and return the length
@@ -568,7 +563,7 @@ int lcwrite(LcFHandle fh, char *buf, size_t len) {
     }
 
     // Retrieve file to write and test if it exists and is open
-    LcFFile writeFile = retrieveFileH(fh);
+    LCFile writeFile = retrieveFileH(fh);
     if (writeFile.open == false || writeFile.size == -1) {
         return -1;
     }
@@ -673,7 +668,7 @@ int lcseek(LcFHandle fh, size_t off) {
     }
 
     // Retrieve file to write and test if it exists and is open
-    LcFFile file = retrieveFileH(fh);
+    LCFile file = retrieveFileH(fh);
     if (file.open == false || file.size == -1 || off > file.size) {
         return -1;
     }
@@ -701,7 +696,7 @@ int lcclose(LcFHandle fh) {
     }
 
     // Retrieve file and test if it is open
-    LcFFile closeFile = retrieveFileH(fh);
+    LCFile closeFile = retrieveFileH(fh);
     if (closeFile.open == false || closeFile.size == -1) {
         return -1;
     }
@@ -732,12 +727,10 @@ int lcshutdown(void) {
         closeFiles();
 
         // Turn off devices
-        LCloudRegisterFrame POWER_OFF = packRegisters(SEND_B0, SEND_B1, LC_POWER_OFF, 0, 0, 0, 0);
-        LCloudRegisterFrame rawResp = lcloud_io_bus(POWER_OFF, NULL);
-        LcUnpackedRegisters resp = unpackRegisters(rawResp);
+        LCUnpackedRegisters resp = unpackRegisters(lcloud_io_bus(packRegisters(SEND_B0, SEND_B1, LC_POWER_OFF, 0, 0, 0, 0), NULL));
 
         // Report any error
-        if (resp.B1 != SUCCESS) {
+        if (resp.B1 != SUCCESS || resp.B0 != RECIEVE || resp.C0 != LC_POWER_OFF) {
             return -1;
         }
 
