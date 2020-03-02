@@ -231,32 +231,32 @@ int calcBlock(int absBlock) {
 LCloudRegisterFrame packRegisters(LC_B0 B0, LC_B1 B1, LC_C0 C0, uint8_t C1, LC_C2 C2, uint16_t D0, uint16_t D1) {
     uint64_t returnRegisters = 0;
     // Copy first four bits of B0 and B1
-    B0 = B0 & 0xF;
-    B1 = B1 & 0xF;
+    B0 &= 0xF;
+    B1 &= 0xF;
 
     // Copy first eight bits of C0, C1, and C2
-    C0 = C0 & 0xFF;
-    C1 = C1 & 0xFF;
-    C2 = C2 & 0xFF;
+    C0 &= 0xFF;
+    C1 &= 0xFF;
+    C2 &= 0xFF;
 
     // Copy first 16 bits of D0 and D1
-    D0 = D0 & 0xFFFF;
-    D1 = D1 & 0xFFFF;
+    D0 &= 0xFFFF;
+    D1 &= 0xFFFF;
 
     // Begin packing values
-    returnRegisters = returnRegisters | B0;
-    returnRegisters = returnRegisters << 4;
-    returnRegisters = returnRegisters | B1;
-    returnRegisters = returnRegisters << 8;
-    returnRegisters = returnRegisters | C0;
-    returnRegisters = returnRegisters << 8;
-    returnRegisters = returnRegisters | C1;
-    returnRegisters = returnRegisters << 8;
-    returnRegisters = returnRegisters | C2;
-    returnRegisters = returnRegisters << 16;
-    returnRegisters = returnRegisters | D0;
-    returnRegisters = returnRegisters << 16;
-    returnRegisters = returnRegisters | D1;
+    returnRegisters |= B0;
+    returnRegisters <<= 4;
+    returnRegisters |= B1;
+    returnRegisters <<= 8;
+    returnRegisters |= C0;
+    returnRegisters <<= 8;
+    returnRegisters |= C1;
+    returnRegisters <<= 8;
+    returnRegisters |= C2;
+    returnRegisters <<= 16;
+    returnRegisters |= D0;
+    returnRegisters <<= 16;
+    returnRegisters |= D1;
 
     // Return packed registers
     return returnRegisters;
@@ -487,8 +487,8 @@ int lcread(LcFHandle fh, char *buf, size_t len) {
         memcpy(&buf[0], &readBuffer[offsetByteFromBlock], len);
     } else {
         uint16_t bufOffset = 0;
-        uint8_t blocksRead = 0;
-        while (bufOffset+(blocksRead*LC_DEVICE_BLOCK_SIZE) < len) {
+        // Determine if length ends on the current block
+        while (bufOffset+(LC_DEVICE_BLOCK_SIZE-offsetByteFromBlock) < len) {
             if (readDataBlock(readDevice, readSector, readBlock, readBuffer) != 0) {
                 return -1;
             }
@@ -529,7 +529,6 @@ int lcread(LcFHandle fh, char *buf, size_t len) {
             for (int i = 0; i < LC_DEVICE_BLOCK_SIZE; i++) {
                 readBuffer[i] = 0;
             }
-            blocksRead++;
         }
         // Read the rest of the data
         if (readDataBlock(readDevice, readSector, readBlock, readBuffer) != 0) {
@@ -602,8 +601,8 @@ int lcwrite(LcFHandle fh, char *buf, size_t len) {
         }
     } else {
         uint16_t bufOffset = 0;
-        uint8_t blocksWritten = 0;
-        while (bufOffset+(blocksWritten*LC_DEVICE_BLOCK_SIZE) < len) {
+        // Determine if length ends on the current block
+        while (bufOffset+(LC_DEVICE_BLOCK_SIZE-offsetByteFromBlock) < len) {
             memcpy(&writeBuffer[offsetByteFromBlock], &buf[bufOffset], LC_DEVICE_BLOCK_SIZE-offsetByteFromBlock);
             if (writeDataBlock(writeDevice, writeSector, writeBlock, writeBuffer) != 0) {
                 return -1;
@@ -632,7 +631,6 @@ int lcwrite(LcFHandle fh, char *buf, size_t len) {
             for (int i = 0; i < LC_DEVICE_BLOCK_SIZE; i++) {
                 writeBuffer[i] = 0;
             }
-            blocksWritten++;
         }
         // Write the remainder of the data to the last block
         memcpy(&writeBuffer[offsetByteFromBlock], &buf[bufOffset], LC_DEVICE_BLOCK_SIZE-offsetByteFromBlock);
