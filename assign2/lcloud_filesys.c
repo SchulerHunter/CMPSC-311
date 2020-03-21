@@ -79,7 +79,6 @@ uint16_t fileCursor = 0; // in blocks
 //
 // Inputs       : None
 // Outputs      : 1 + the max handle found in the list
-
 LcFHandle generateHandle(void) {
     LcFHandle maxHandle = 0; // All files will have handles of 1 or greater
     for (int i = 0; i < MAX_FILES; i++) {
@@ -97,7 +96,6 @@ LcFHandle generateHandle(void) {
 //
 // Inputs       : handle - The file handle provided
 // Outputs      : A file; has a size of -1 if there was an error
-
 LCFile retrieveFileH(LcFHandle handle) {
     LCFile errFile;
     errFile.size = -1;
@@ -116,7 +114,6 @@ LCFile retrieveFileH(LcFHandle handle) {
 //
 // Inputs       : *path - A pointer to a string array for the path
 // Outputs      : A file; has a size of -1 if there was an error
-
 LCFile retrieveFileP(const char *path) {
     LCFile errFile;
     errFile.size = -1;
@@ -135,7 +132,6 @@ LCFile retrieveFileP(const char *path) {
 //
 // Inputs       : file - The file to be saved
 // Outputs      : 0 if successful (file found) or -1 if the file ouldn't be found
-
 int saveFile(LCFile file) {
     for (int i = 0; i < MAX_FILES; i++) {
         if (files[i].handle == file.handle) {
@@ -154,7 +150,6 @@ int saveFile(LCFile file) {
 //
 // Inputs       : None
 // Outputs      : None
-
 void closeFiles(void) {
     for (int i = 0; i < MAX_FILES; i++) {
         files[i].open = false;
@@ -168,7 +163,6 @@ void closeFiles(void) {
 //
 // Inputs       : None
 // Outputs      : the index of the first empty file, or -1 if there is no more available
-
 int findEmptyFile(void) {
     for (int i = 0; i < MAX_FILES; i++) {
         if (files[i].path == 0) {
@@ -185,7 +179,6 @@ int findEmptyFile(void) {
 //
 // Inputs       : absBlock - The absolute block
 // Outputs      : Device number = absBlock / BLOCKS_PER_DEVICE
-
 int calcDevice(int absBlock) {
     return (absBlock / BLOCKS_PER_DEVICE);
 }
@@ -197,7 +190,6 @@ int calcDevice(int absBlock) {
 //
 // Inputs       : absBlock - The absolute block
 // Outputs      : Sector number = (fileCursor % BLOCKS_PER_DEVICE) / LC_DEVICE_NUMBER_BLOCKS
-
 int calcSector(int absBlock) {
     return ((absBlock % BLOCKS_PER_DEVICE) / LC_DEVICE_NUMBER_BLOCKS);
 }
@@ -209,7 +201,6 @@ int calcSector(int absBlock) {
 //
 // Inputs       : absBlock - The absolute block
 // Outputs      : Block number = (fileCursor % BLOCKS_PER_DEVICE) % LC_DEVICE_NUMBER_BLOCKS
-
 int calcBlock(int absBlock) {
     return ((absBlock % BLOCKS_PER_DEVICE) % LC_DEVICE_NUMBER_BLOCKS);
 }
@@ -227,7 +218,6 @@ int calcBlock(int absBlock) {
 //                D0 - First 16 bits of register (Sector number - relative to device)
 //                D1 - Second 16 bits of register (Block number - relative to sector)
 // Outputs      : returnRegisters - An packed register set to send to the IO
-
 LCloudRegisterFrame packRegisters(LC_B0 B0, LC_B1 B1, LC_C0 C0, uint8_t C1, LC_C2 C2, uint16_t D0, uint16_t D1) {
     uint64_t returnRegisters = 0;
     // Copy first four bits of B0 and B1
@@ -269,7 +259,6 @@ LCloudRegisterFrame packRegisters(LC_B0 B0, LC_B1 B1, LC_C0 C0, uint8_t C1, LC_C
 //
 // Inputs       : registerFrame - The response frame from the bus
 // Outputs      : returnRegisters - An unpacked version of the response with type LCUnpackedRegisters
-
 LCUnpackedRegisters unpackRegisters(LCloudRegisterFrame registerFrame) {
     // Copy values from registerFrame in reverse order for easy evaluation
     LCUnpackedRegisters returnRegisters;
@@ -299,7 +288,6 @@ LCUnpackedRegisters unpackRegisters(LCloudRegisterFrame registerFrame) {
 //                sec - the integer value of the sector to write to (relative to the device)
 //                block - the integer value of the block to write to (relative to the sector)
 // Outputs      : 0 if successful, -1 if failure
-
 int writeDataBlock(uint8_t dev, uint16_t sec, uint16_t block, char *buf) {
     LCUnpackedRegisters resp = unpackRegisters(lcloud_io_bus(packRegisters(SEND_B0, SEND_B1, LC_BLOCK_XFER, dev, LC_XFER_WRITE, sec, block), buf));
     // If they don't return success, throw an error
@@ -318,7 +306,6 @@ int writeDataBlock(uint8_t dev, uint16_t sec, uint16_t block, char *buf) {
 //                sec - the integer value of the sector to read from (relative to the device)
 //                block - the integer value of the block to read from (relative to the sector)
 // Outputs      : 0 if successful, -1 if failure
-
 int readDataBlock(uint8_t dev, uint16_t sec, uint16_t block, char *buf) {
     LCUnpackedRegisters resp = unpackRegisters(lcloud_io_bus(packRegisters(SEND_B0, SEND_B1, LC_BLOCK_XFER, dev, LC_XFER_READ, sec, block), buf));
     // If they don't return success, throw an error
@@ -335,7 +322,6 @@ int readDataBlock(uint8_t dev, uint16_t sec, uint16_t block, char *buf) {
 //
 // Inputs       : lastDevice - the last device available to write to
 // Outputs      : next available lion cloud device if successful, -1 if failure
-
 int selectNextDevice(int lastDevice) {
     for (int i = lastDevice; i < MAX_DEVICES; i++) {
         if (devices[i] != -1) {
@@ -352,7 +338,6 @@ int selectNextDevice(int lastDevice) {
 //
 // Inputs       : None
 // Outputs      : 0 if successful, -1 if failure
-
 int powerOn(void) {
     // Send a power on signal (0) to devices
     LCUnpackedRegisters resp = unpackRegisters(lcloud_io_bus(0, NULL));
@@ -393,7 +378,6 @@ int powerOn(void) {
 //
 // Inputs       : path - the path/filename of the file to be read
 // Outputs      : file handle if successful test, -1 if failure
-
 LcFHandle lcopen(const char *path) {
     // If devices haven't been turned on, initialize them
     if (!lc_on) {
@@ -555,7 +539,6 @@ int lcread(LcFHandle fh, char *buf, size_t len) {
 //                buf - pointer to data to write
 //                len - the length of the write
 // Outputs      : number of bytes written if successful test, -1 if failure
-
 int lcwrite(LcFHandle fh, char *buf, size_t len) {
     // If devices haven't been turned on, initialize them
     if (!lc_on) {
@@ -664,7 +647,6 @@ int lcwrite(LcFHandle fh, char *buf, size_t len) {
 // Inputs       : fh - the file handle of the file to seek in
 //                off - offset within the file to seek to
 // Outputs      : 0 if successful test, -1 if failure
-
 int lcseek(LcFHandle fh, size_t off) {
     // If devices haven't been turned on, initialize them
     if (!lc_on) {
@@ -693,7 +675,6 @@ int lcseek(LcFHandle fh, size_t off) {
 //
 // Inputs       : fh - the file handle of the file to close
 // Outputs      : 0 if successful test, -1 if failure
-
 int lcclose(LcFHandle fh) {
     if (!lc_on) {
         if (powerOn() == -1) {
@@ -725,7 +706,6 @@ int lcclose(LcFHandle fh) {
 //
 // Inputs       : none
 // Outputs      : 0 if successful test, -1 if failure
-
 int lcshutdown(void) {
     // If devices are on, turn them off
     if (lc_on) {
