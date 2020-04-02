@@ -20,8 +20,6 @@
 // Define max values
 #define MAX_FILES 256 // Define max allowed files
 #define MAX_DEVICES 16 // Define max allowed devices
-#define BLOCKS_PER_DEVICE (LC_DEVICE_NUMBER_BLOCKS*LC_DEVICE_NUMBER_SECTORS) // Define max blocks per device
-#define MAX_BLOCKS (LC_DEVICE_NUMBER_BLOCKS*LC_DEVICE_NUMBER_SECTORS*MAX_DEVICES) // Define max blocks on a system
 
 // File system interface implementation
 // Create a boolean class
@@ -47,21 +45,31 @@ typedef struct {
     uint16_t D1;
 } LCUnpackedRegisters;
 
-
 // Create a class for a file type
 typedef struct {
     char *path; // File path
     LcFHandle handle; // File handle
     uint32_t pos; // Cursor position (in bytes)
     uint32_t size; // File size
-    uint16_t blocks[MAX_BLOCKS]; // Block array (Uses same math as fileCursor) (So yeah memory efficient is lame)
-    bool open;
+    bool open; // Boolean to determine if the file is open
+    uint16_t blocks[]; // Free Array Member of used blocks (Uses same math as fileCursor)
 } LCFile;
+
+// Create a class for each device
+typedef struct {
+    bool active; // Determine if device is on
+    uint8_t sectors; // Number of sectors on device
+    uint8_t blocks; // Number of blocks per sector
+    uint32_t totalBlocks; // Total number of blocks on device
+    // TODO: Verify if this is necessary
+    uint32_t freeBlocks; // Number of free blocks on device 
+} LCDevice;
 
 // Declare global variables
 bool lc_on = false; // Lioncloud on or off
 LCFile files[MAX_FILES]; // Create an array of MAX_FILES items to keep track for unique file handles
-uint8_t devices[MAX_DEVICES] = { [0 ... 15] = -1}; // Create an array of MAX_DEVICES items to keep track of devices
+LCDevice devices[MAX_DEVICES] = { [0 ... 15] = -1}; // Create an array of MAX_DEVICES items to keep track of devices
+uint16_t maxFiles = 0;
 // A cursor which tracks last block available to place file, assumes file is at least 1 block
 
 // Device number = fileCursor / BLOCKS_PER_DEVICE
@@ -180,7 +188,8 @@ int findEmptyFile(void) {
 // Inputs       : absBlock - The absolute block
 // Outputs      : Device number = absBlock / BLOCKS_PER_DEVICE
 int calcDevice(int absBlock) {
-    return (absBlock / BLOCKS_PER_DEVICE);
+    // TODO: Rewrite the function
+    // Sub the initialized device sizes
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -189,9 +198,10 @@ int calcDevice(int absBlock) {
 // Description  : A function to calculate sector relative to device from an absolute position
 //
 // Inputs       : absBlock - The absolute block
+//                device - Device containing block
 // Outputs      : Sector number = (fileCursor % BLOCKS_PER_DEVICE) / LC_DEVICE_NUMBER_BLOCKS
-int calcSector(int absBlock) {
-    return ((absBlock % BLOCKS_PER_DEVICE) / LC_DEVICE_NUMBER_BLOCKS);
+int calcSector(int absBlock, LCDevice device) {
+    // TODO: Rewrite the function
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -200,9 +210,10 @@ int calcSector(int absBlock) {
 // Description  : A function to calculate block relative to sector from an absolute position
 //
 // Inputs       : absBlock - The absolute block
+//                device - Device containing block
 // Outputs      : Block number = (fileCursor % BLOCKS_PER_DEVICE) % LC_DEVICE_NUMBER_BLOCKS
-int calcBlock(int absBlock) {
-    return ((absBlock % BLOCKS_PER_DEVICE) % LC_DEVICE_NUMBER_BLOCKS);
+int calcBlock(int absBlock, int device) {
+    // TODO: Rewrite the function
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -324,7 +335,7 @@ int readDataBlock(uint8_t dev, uint16_t sec, uint16_t block, char *buf) {
 // Outputs      : next available lion cloud device if successful, -1 if failure
 int selectNextDevice(int lastDevice) {
     for (int i = lastDevice; i < MAX_DEVICES; i++) {
-        if (devices[i] != -1) {
+        if (devices[i].active != false && devices[i].freeBlocks > 0) {
             return i;
         }
     }
@@ -347,7 +358,7 @@ int powerOn(void) {
         return -1;
     }
 
-    // Probe available devices
+    // Probe for available devices
     resp = unpackRegisters(lcloud_io_bus(packRegisters(SEND_B0, SEND_B1, LC_DEVPROBE, 0, 0, 0, 0), NULL));
 
     // If they don't return success, throw an error
@@ -356,15 +367,30 @@ int powerOn(void) {
     }
 
     // Decode available devices
-    int lowestDevice = -1;
     for (int i = 0; i < MAX_DEVICES; i++) {
         if ((resp.D0 & 1) > 0) {
-            devices[i] = 1;
-            lowestDevice = lowestDevice == -1 ? i : lowestDevice;
+            // Initialize the available device
+            LCUnpackedRegisters respInit = unpackRegisters(lcloud_io_bus(packRegisters(SEND_B0, SEND_B1, LC_DEVINIT, i, 0, 0, 0), NULL));
+
+            // If they don't return success, throw an error
+            if (respInit.B0 != RECIEVE || respInit.B1 != SUCCESS || respInit.C0 != LC_DEVINIT || respInit.D0 == 0) {
+                return -1;
+            }
+
+            // Define device
+            devices[i].active = true;
+            devices[i].sectors = respInit.D0;
+            devices[i].blocks = respInit.D1;
+            devices[i].totalBlocks = respInit.D0 * respInit.D1;
+            devices[i].freeBlocks = devices[i].totalBlocks;
+
+            // Increment max files
+            maxFiles += devices[i].totalBlocks;
         }
         resp.D0 >>= 1;
     }
-    fileCursor = lowestDevice * BLOCKS_PER_DEVICE;
+
+    fileCursor = 0;
 
     // Mark devices as turned on
     lc_on = true;
