@@ -275,7 +275,6 @@ LCUnpackedRegisters unpackRegisters(LCloudRegisterFrame registerFrame) {
     returnRegisters.B1 = registerFrame & 0xF;
     registerFrame >>= 4;
     returnRegisters.B0 = registerFrame & 0xF;
-    registerFrame >>= 4;
     return returnRegisters;
 }
 

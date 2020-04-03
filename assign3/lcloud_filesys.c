@@ -18,7 +18,7 @@
 #include <lcloud_controller.h>
 
 // Define max values
-#define MAX_FILES 256 // Define max allowed files
+#define MAX_NAME_LENGTH 256 // Max allowed name length
 #define MAX_DEVICES 16 // Define max allowed devices
 
 // File system interface implementation
@@ -45,40 +45,30 @@ typedef struct {
     uint16_t D1;
 } LCUnpackedRegisters;
 
-// Create a class for a file type
-typedef struct {
-    char *path; // File path
-    LcFHandle handle; // File handle
-    uint32_t pos; // Cursor position (in bytes)
-    uint32_t size; // File size
-    bool open; // Boolean to determine if the file is open
-    uint16_t blocks[]; // Free Array Member of used blocks (Uses same math as fileCursor)
-} LCFile;
-
 // Create a class for each device
 typedef struct {
     bool active; // Determine if device is on
     uint8_t sectors; // Number of sectors on device
     uint8_t blocks; // Number of blocks per sector
     uint32_t totalBlocks; // Total number of blocks on device
-    // TODO: Verify if this is necessary
-    uint32_t freeBlocks; // Number of free blocks on device 
 } LCDevice;
+
+// Create a class for a file type
+struct LCFile {
+    char path[MAX_NAME_LENGTH]; // File path
+    LcFHandle handle; // File handle
+    uint32_t pos; // Cursor position (in bytes)
+    uint32_t size; // File size
+    bool open; // Boolean to determine if the file is open
+    uint16_t blocks[]; // Flexible array member of used blocks (Uses same math as fileCursor)
+};
 
 // Declare global variables
 bool lc_on = false; // Lioncloud on or off
-LCFile files[MAX_FILES]; // Create an array of MAX_FILES items to keep track for unique file handles
-LCDevice devices[MAX_DEVICES] = { [0 ... 15] = -1}; // Create an array of MAX_DEVICES items to keep track of devices
+struct LCFile **files; // Create an array of files to keep track for every file object
+LCDevice devices[MAX_DEVICES]; // Create an array of MAX_DEVICES items to keep track of devices
 uint16_t maxFiles = 0;
-// A cursor which tracks last block available to place file, assumes file is at least 1 block
-
-// Device number = fileCursor / BLOCKS_PER_DEVICE
-// Block number on device = fileCursor % BLOCKS_PER_DEVICE
-// Sector number on device = (fileCursor % BLOCKS_PER_DEVICE) / LC_DEVICE_NUMBER_BLOCKS
-// Block number relative to sector = (fileCursor % BLOCKS_PER_DEVICE) % LC_DEVICE_NUMBER_BLOCKS
-
-// Gets initialized on device on to lowest block of lowest device
-uint16_t fileCursor = 0; // in blocks
+uint16_t fileCursor = 0; // A cursor which tracks last block available to place file, assumes file is at least 1 block
 
 ////////////////////////////////////////////////////////////////////////////////
 //
@@ -89,9 +79,9 @@ uint16_t fileCursor = 0; // in blocks
 // Outputs      : 1 + the max handle found in the list
 LcFHandle generateHandle(void) {
     LcFHandle maxHandle = 0; // All files will have handles of 1 or greater
-    for (int i = 0; i < MAX_FILES; i++) {
-        if (files[i].handle > maxHandle) {
-            maxHandle = files[i].handle;
+    for (int i = 0; i < maxFiles; i++) {
+        if (files[i]->handle > maxHandle) {
+            maxHandle = files[i]->handle;
         }
     }
     return (++maxHandle);
@@ -104,14 +94,14 @@ LcFHandle generateHandle(void) {
 //
 // Inputs       : handle - The file handle provided
 // Outputs      : A file; has a size of -1 if there was an error
-LCFile retrieveFileH(LcFHandle handle) {
-    LCFile errFile;
-    errFile.size = -1;
-    for (int i = 0; i < MAX_FILES; i++) {
-        if (files[i].handle == handle) {
+struct LCFile *retrieveFileH(LcFHandle handle) {
+    for (int i = 0; i < maxFiles; i++) {
+        if (files[i]->handle == handle) {
             return files[i];
         }
     }
+    struct LCFile *errFile = malloc(sizeof(struct LCFile));
+    errFile->size = -1;
     return errFile;
 }
 
@@ -122,14 +112,14 @@ LCFile retrieveFileH(LcFHandle handle) {
 //
 // Inputs       : *path - A pointer to a string array for the path
 // Outputs      : A file; has a size of -1 if there was an error
-LCFile retrieveFileP(const char *path) {
-    LCFile errFile;
-    errFile.size = -1;
-    for (int i = 0; i < MAX_FILES; i++) {
-        if (files[i].path == path) {
+struct LCFile *retrieveFileP(const char *path) {
+    for (int i = 0; i < maxFiles; i++) {
+        if (files[i]->path == path) {
             return files[i];
         }
     }
+    struct LCFile *errFile = malloc(sizeof(struct LCFile));
+    errFile->size = -1;
     return errFile;
 }
 
@@ -140,9 +130,9 @@ LCFile retrieveFileP(const char *path) {
 //
 // Inputs       : file - The file to be saved
 // Outputs      : 0 if successful (file found) or -1 if the file ouldn't be found
-int saveFile(LCFile file) {
-    for (int i = 0; i < MAX_FILES; i++) {
-        if (files[i].handle == file.handle) {
+int saveFile(struct LCFile *file) {
+    for (int i = 0; i < maxFiles; i++) {
+        if (files[i]->handle == file->handle) {
             files[i] = file;
             return 0;
         }
@@ -159,9 +149,11 @@ int saveFile(LCFile file) {
 // Inputs       : None
 // Outputs      : None
 void closeFiles(void) {
-    for (int i = 0; i < MAX_FILES; i++) {
-        files[i].open = false;
+    for (int i = 0; i < maxFiles; i++) {
+        files[i]->open = false;
+        free(files[i]);
     }
+    free(files);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -172,8 +164,8 @@ void closeFiles(void) {
 // Inputs       : None
 // Outputs      : the index of the first empty file, or -1 if there is no more available
 int findEmptyFile(void) {
-    for (int i = 0; i < MAX_FILES; i++) {
-        if (files[i].path == 0) {
+    for (int i = 0; i < maxFiles; i++) {
+        if (files[i]->handle < 0) {
             return i;
         }
     }
@@ -186,10 +178,14 @@ int findEmptyFile(void) {
 // Description  : A function to calculate device from an absolute position
 //
 // Inputs       : absBlock - The absolute block
-// Outputs      : Device number = absBlock / BLOCKS_PER_DEVICE
+// Outputs      : Device number - Device which stores absBlock
 int calcDevice(int absBlock) {
-    // TODO: Rewrite the function
-    // Sub the initialized device sizes
+    for (int i = 0; i < MAX_DEVICES; i++) {
+        absBlock -= devices[i].totalBlocks;
+        if (absBlock < 0) {
+            return i;
+        }
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -198,10 +194,17 @@ int calcDevice(int absBlock) {
 // Description  : A function to calculate sector relative to device from an absolute position
 //
 // Inputs       : absBlock - The absolute block
-//                device - Device containing block
-// Outputs      : Sector number = (fileCursor % BLOCKS_PER_DEVICE) / LC_DEVICE_NUMBER_BLOCKS
-int calcSector(int absBlock, LCDevice device) {
-    // TODO: Rewrite the function
+// Outputs      : Sector number - The sector on the device
+int calcSector(int absBlock) {
+    // Find calculate device, absblock becomes block on device
+    for (int i = 0; i < MAX_DEVICES; i++) {
+        absBlock -= devices[i].totalBlocks;
+        if (absBlock < 0) {
+            absBlock += devices[i].totalBlocks;
+            // Calculate sector on device
+            return absBlock / devices[i].blocks;
+        }
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -210,10 +213,17 @@ int calcSector(int absBlock, LCDevice device) {
 // Description  : A function to calculate block relative to sector from an absolute position
 //
 // Inputs       : absBlock - The absolute block
-//                device - Device containing block
-// Outputs      : Block number = (fileCursor % BLOCKS_PER_DEVICE) % LC_DEVICE_NUMBER_BLOCKS
-int calcBlock(int absBlock, int device) {
-    // TODO: Rewrite the function
+// Outputs      : Block number - Block in sector on device
+int calcBlock(int absBlock) {
+    // Find calculate device, absblock becomes block on device
+    for (int i = 0; i < MAX_DEVICES; i++) {
+        absBlock -= devices[i].totalBlocks;
+        if (absBlock < 0) {
+            absBlock += devices[i].totalBlocks;
+            // Calculate block on device
+            return absBlock % devices[i].blocks;
+        }
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -228,39 +238,26 @@ int calcBlock(int absBlock, int device) {
 //                C2 - Third 8 bits of register (Determines Read or Write)
 //                D0 - First 16 bits of register (Sector number - relative to device)
 //                D1 - Second 16 bits of register (Block number - relative to sector)
-// Outputs      : returnRegisters - An packed register set to send to the IO
+// Outputs      : registers - An packed register set to send to the IO
 LCloudRegisterFrame packRegisters(LC_B0 B0, LC_B1 B1, LC_C0 C0, uint8_t C1, LC_C2 C2, uint16_t D0, uint16_t D1) {
-    uint64_t returnRegisters = 0;
-    // Copy first four bits of B0 and B1
-    B0 &= 0xF;
-    B1 &= 0xF;
-
-    // Copy first eight bits of C0, C1, and C2
-    C0 &= 0xFF;
-    C1 &= 0xFF;
-    C2 &= 0xFF;
-
-    // Copy first 16 bits of D0 and D1
-    D0 &= 0xFFFF;
-    D1 &= 0xFFFF;
-
+    uint64_t registers = 0;
     // Begin packing values
-    returnRegisters |= B0;
-    returnRegisters <<= 4;
-    returnRegisters |= B1;
-    returnRegisters <<= 8;
-    returnRegisters |= C0;
-    returnRegisters <<= 8;
-    returnRegisters |= C1;
-    returnRegisters <<= 8;
-    returnRegisters |= C2;
-    returnRegisters <<= 16;
-    returnRegisters |= D0;
-    returnRegisters <<= 16;
-    returnRegisters |= D1;
+    registers |= (B0 & 0xF);
+    registers <<= 4;
+    registers |= (B1 & 0xF);
+    registers <<= 8;
+    registers |= (C0 & 0xFF);
+    registers <<= 8;
+    registers |= (C1 & 0xFF);
+    registers <<= 8;
+    registers |= (C2 & 0xFF);
+    registers <<= 16;
+    registers |= (D0 & 0xFFFF);
+    registers <<= 16;
+    registers |= (D1 & 0xFFFF);
 
     // Return packed registers
-    return returnRegisters;
+    return registers;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -269,25 +266,24 @@ LCloudRegisterFrame packRegisters(LC_B0 B0, LC_B1 B1, LC_C0 C0, uint8_t C1, LC_C
 // Description  : A function to unpack a response from the IO Bus
 //
 // Inputs       : registerFrame - The response frame from the bus
-// Outputs      : returnRegisters - An unpacked version of the response with type LCUnpackedRegisters
+// Outputs      : registers - An unpacked version of the response with type LCUnpackedRegisters
 LCUnpackedRegisters unpackRegisters(LCloudRegisterFrame registerFrame) {
     // Copy values from registerFrame in reverse order for easy evaluation
-    LCUnpackedRegisters returnRegisters;
-    returnRegisters.D1 = registerFrame & 0xFFFF;
+    LCUnpackedRegisters registers;
+    registers.D1 = registerFrame & 0xFFFF;
     registerFrame >>= 16;
-    returnRegisters.D0 = registerFrame & 0xFFFF;
+    registers.D0 = registerFrame & 0xFFFF;
     registerFrame >>= 16;
-    returnRegisters.C2 = registerFrame & 0xFF;
+    registers.C2 = registerFrame & 0xFF;
     registerFrame >>= 8;
-    returnRegisters.C1 = registerFrame & 0xFF;
+    registers.C1 = registerFrame & 0xFF;
     registerFrame >>= 8;
-    returnRegisters.C0 = registerFrame & 0xFF;
+    registers.C0 = registerFrame & 0xFF;
     registerFrame >>= 8;
-    returnRegisters.B1 = registerFrame & 0xF;
+    registers.B1 = registerFrame & 0xF;
     registerFrame >>= 4;
-    returnRegisters.B0 = registerFrame & 0xF;
-    registerFrame >>= 4;
-    return returnRegisters;
+    registers.B0 = registerFrame & 0xF;
+    return registers;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -335,7 +331,7 @@ int readDataBlock(uint8_t dev, uint16_t sec, uint16_t block, char *buf) {
 // Outputs      : next available lion cloud device if successful, -1 if failure
 int selectNextDevice(int lastDevice) {
     for (int i = lastDevice; i < MAX_DEVICES; i++) {
-        if (devices[i].active != false && devices[i].freeBlocks > 0) {
+        if (devices[i].active != false) {
             return i;
         }
     }
@@ -382,14 +378,24 @@ int powerOn(void) {
             devices[i].sectors = respInit.D0;
             devices[i].blocks = respInit.D1;
             devices[i].totalBlocks = respInit.D0 * respInit.D1;
-            devices[i].freeBlocks = devices[i].totalBlocks;
 
             // Increment max files
             maxFiles += devices[i].totalBlocks;
+        } else {
+            devices[i].active = false;
         }
         resp.D0 >>= 1;
     }
 
+    files = malloc(maxFiles*(sizeof(struct LCFile) + sizeof(uint16_t)*maxFiles));
+    for (int i = 0; i < maxFiles; i++) {
+        struct LCFile *file = malloc(sizeof(struct LCFile) + sizeof(uint16_t)*maxFiles);
+        // Create a simple dummy file for each of the possible files
+        file->handle = -1;
+        file->size = 0;
+        file->open = false;
+        files[i] = file;
+    }
     fileCursor = 0;
 
     // Mark devices as turned on
@@ -413,20 +419,24 @@ LcFHandle lcopen(const char *path) {
     }
 
     // Check if file exists
-    LCFile file = retrieveFileP(path);
+    struct LCFile *file = retrieveFileP(path);
 
     // If not, create it
-    if (file.size == -1) {
-        file.path = path;
-        file.handle = generateHandle();
-        file.pos = 0;
-        file.open = true;
-        file.blocks[0] = fileCursor++;
-        file.size = 0;
-        files[findEmptyFile()] = file;
+    int handle = generateHandle();
+    if (file->size == -1) {
+        // Free the temporary storage used in the retrieve function, since it doesn't account for max array size
+        free(file);
+        int index = findEmptyFile();
+        for (int i = 0; i < strlen(path); i++) {
+            files[index]->path[i] = path[i];
+        }
+        files[index]->handle = handle;
+        files[index]->pos = 0;
+        files[index]->size = 0;
+        files[index]->open = true;
+        files[index]->blocks[0] = fileCursor++;
     }
-
-    return(file.handle);
+    return(handle);
 } 
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -452,13 +462,14 @@ int lcread(LcFHandle fh, char *buf, size_t len) {
     }
 
     // Retrieve file to read and test if it exists and is open
-    LCFile readFile = retrieveFileH(fh);
-    if (readFile.open == false || readFile.size == -1) {
+    struct LCFile *readFile = retrieveFileH(fh);
+    if (readFile->open == false || readFile->size == -1) {
+        free(readFile);
         return -1;
     }
 
     // Check if file pointer is at the end of the file
-    if (readFile.pos == readFile.size) {
+    if (readFile->pos == readFile->size) {
         return len;
     }
 
@@ -468,13 +479,13 @@ int lcread(LcFHandle fh, char *buf, size_t len) {
     // Retrieve the current block data and calculate the offset with pos
     // block index = pos / LC_DEVICE_BLOCK_SIZE
     // calculate device, sector, and block using block pointer math
-    uint16_t blockIndex = readFile.pos / LC_DEVICE_BLOCK_SIZE;
-    uint16_t readBlock = calcBlock(readFile.blocks[blockIndex]);
-    uint16_t readSector = calcSector(readFile.blocks[blockIndex]);
-    uint8_t readDevice = calcDevice(readFile.blocks[blockIndex]);
+    uint16_t blockIndex = readFile->pos / LC_DEVICE_BLOCK_SIZE;
+    uint16_t readBlock = calcBlock(readFile->blocks[blockIndex]);
+    uint16_t readSector = calcSector(readFile->blocks[blockIndex]);
+    uint8_t readDevice = calcDevice(readFile->blocks[blockIndex]);
 
     // offset index from returned buffer = pos % LC_DEVICE_BLOCK_SIZE
-    uint8_t offsetByteFromBlock = readFile.pos % LC_DEVICE_BLOCK_SIZE;
+    uint8_t offsetByteFromBlock = readFile->pos % LC_DEVICE_BLOCK_SIZE;
 
     // Check if offset+len is still within a block
     if (offsetByteFromBlock+len <= LC_DEVICE_BLOCK_SIZE) {
@@ -482,11 +493,11 @@ int lcread(LcFHandle fh, char *buf, size_t len) {
             return -1;
         }
         // Check if this will read to the end of the file
-        if (readFile.pos+len > readFile.size) {
+        if (readFile->pos+len > readFile->size) {
             // Read the remainder of the file
-            memcpy(&buf[0], &readBuffer[offsetByteFromBlock], readFile.size-readFile.pos);
+            memcpy(&buf[0], &readBuffer[offsetByteFromBlock], readFile->size-readFile->pos);
             // Set the cursor to the end of the file
-            readFile.pos = readFile.size;
+            readFile->pos = readFile->size;
             // Save the file and return the length
             if (saveFile(readFile) != 0) {
                 return -1;
@@ -504,18 +515,18 @@ int lcread(LcFHandle fh, char *buf, size_t len) {
             }
 
             // Reading the last block of the data file
-            if (readFile.blocks[blockIndex+1] == 0) {
+            if (readFile->blocks[blockIndex+1] == 0) {
                 // Read the remainder of the file
-                if (len - bufOffset > (readFile.size % LC_DEVICE_BLOCK_SIZE)) {
+                if (len - bufOffset > (readFile->size % LC_DEVICE_BLOCK_SIZE)) {
                     // If it is greater than the remainder of the file, read to the end
-                    memcpy(&buf[bufOffset], &readBuffer[offsetByteFromBlock], readFile.size % LC_DEVICE_BLOCK_SIZE);
+                    memcpy(&buf[bufOffset], &readBuffer[offsetByteFromBlock], readFile->size % LC_DEVICE_BLOCK_SIZE);
                     // Set the cursor to the end of the file
-                    readFile.pos = readFile.size;
+                    readFile->pos = readFile->size;
                 } else {
                     // Doesn't read to the end of the file
                     memcpy(&buf[bufOffset], &readBuffer[offsetByteFromBlock], len - bufOffset);
                     // Set the cursor to the end of the read
-                    readFile.pos += len;
+                    readFile->pos += len;
                 }
                 // Save the file and return the length
                 if (saveFile(readFile) != 0) {
@@ -531,9 +542,9 @@ int lcread(LcFHandle fh, char *buf, size_t len) {
             offsetByteFromBlock = 0;
 
             // Use logic to increment block and sector to next available block
-            readBlock = calcBlock(readFile.blocks[++blockIndex]);
-            readSector = calcSector(readFile.blocks[blockIndex]);
-            readDevice = calcDevice(readFile.blocks[blockIndex]);
+            readBlock = calcBlock(readFile->blocks[++blockIndex]);
+            readSector = calcSector(readFile->blocks[blockIndex]);
+            readDevice = calcDevice(readFile->blocks[blockIndex]);
 
             // Reset readBuffer
             for (int i = 0; i < LC_DEVICE_BLOCK_SIZE; i++) {
@@ -549,7 +560,7 @@ int lcread(LcFHandle fh, char *buf, size_t len) {
 
 
     // Save file back to list
-    readFile.pos+=len;
+    readFile->pos+=len;
     if (saveFile(readFile) != 0){
         return -1;
     }
@@ -579,8 +590,9 @@ int lcwrite(LcFHandle fh, char *buf, size_t len) {
     }
 
     // Retrieve file to write and test if it exists and is open
-    LCFile writeFile = retrieveFileH(fh);
-    if (writeFile.open == false || writeFile.size == -1) {
+    struct LCFile *writeFile = retrieveFileH(fh);
+    if (writeFile->open == false || writeFile->size == -1) {
+        free(writeFile);
         return -1;
     }
 
@@ -590,13 +602,13 @@ int lcwrite(LcFHandle fh, char *buf, size_t len) {
     // Retrieve the current block data and calculate the offset with pos
     // block index = pos / LC_DEVICE_BLOCK_SIZE
     // calculate device, sector, and block using block pointer math
-    uint16_t blockIndex = writeFile.pos / LC_DEVICE_BLOCK_SIZE;
-    uint16_t writeBlock = calcBlock(writeFile.blocks[blockIndex]);
-    uint16_t writeSector = calcSector(writeFile.blocks[blockIndex]);
-    uint8_t writeDevice = calcDevice(writeFile.blocks[blockIndex]);
+    uint16_t blockIndex = writeFile->pos / LC_DEVICE_BLOCK_SIZE;
+    uint16_t writeBlock = calcBlock(writeFile->blocks[blockIndex]);
+    uint16_t writeSector = calcSector(writeFile->blocks[blockIndex]);
+    uint8_t writeDevice = calcDevice(writeFile->blocks[blockIndex]);
 
     // offset index from returned buffer = pos % LC_DEVICE_BLOCK_SIZE
-    uint8_t offsetByteFromBlock = writeFile.pos % LC_DEVICE_BLOCK_SIZE;
+    uint8_t offsetByteFromBlock = writeFile->pos % LC_DEVICE_BLOCK_SIZE;
 
     if (readDataBlock(writeDevice, writeSector, writeBlock, writeBuffer) != 0) {
         return -1;
@@ -625,15 +637,18 @@ int lcwrite(LcFHandle fh, char *buf, size_t len) {
             writeBlock = calcBlock(fileCursor);
             writeSector = calcSector(fileCursor);
             writeDevice = calcDevice(fileCursor);
-            writeFile.blocks[++blockIndex] = fileCursor++;
-            if (devices[writeDevice] == -1) {
+            writeFile->blocks[++blockIndex] = fileCursor++;
+            if (devices[writeDevice].active == false) {
                 writeDevice = selectNextDevice(writeDevice);
                 // No more devices to write to
                 if (writeDevice == -1) {
                     return -1;
                 }
                 // Adjust pointer to beginning of device
-                fileCursor = writeDevice*BLOCKS_PER_DEVICE;
+                fileCursor = 0;
+                for (int i = 0; i < writeDevice; i++) {
+                    fileCursor += devices[i].totalBlocks;
+                }
             }
 
             // Reset writeBuffer
@@ -649,14 +664,14 @@ int lcwrite(LcFHandle fh, char *buf, size_t len) {
     }
 
     // Increment file size and pos
-    writeFile.pos += len;
-    if (writeFile.pos > writeFile.size) {
-        writeFile.size = writeFile.pos;
+    writeFile->pos += len;
+    if (writeFile->pos > writeFile->size) {
+        writeFile->size = writeFile->pos;
     }
 
     // If the block index increases
-    if ((writeFile.pos / LC_DEVICE_BLOCK_SIZE) > blockIndex ) {
-        writeFile.blocks[writeFile.pos / LC_DEVICE_BLOCK_SIZE] = fileCursor++;
+    if ((writeFile->pos / LC_DEVICE_BLOCK_SIZE) > blockIndex ) {
+        writeFile->blocks[writeFile->pos / LC_DEVICE_BLOCK_SIZE] = fileCursor++;
     }
 
     if (saveFile(writeFile) != 0) {
@@ -682,16 +697,17 @@ int lcseek(LcFHandle fh, size_t off) {
     }
 
     // Retrieve file to write and test if it exists and is open
-    LCFile file = retrieveFileH(fh);
-    if (file.open == false || file.size == -1 || off > file.size) {
+    struct LCFile *file = retrieveFileH(fh);
+    if (file->open == false || file->size == -1 || off > file->size) {
+        free(file);
         return -1;
     }
 
-    file.pos = off;
+    file->pos = off;
     if (saveFile(file) != 0) {
         return -1;
     }
-    return 0;
+    return off;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -709,13 +725,14 @@ int lcclose(LcFHandle fh) {
     }
 
     // Retrieve file and test if it is open
-    LCFile closeFile = retrieveFileH(fh);
-    if (closeFile.open == false || closeFile.size == -1) {
+    struct LCFile *closeFile = retrieveFileH(fh);
+    if (closeFile->open == false || closeFile->size == -1) {
+        free(closeFile);
         return -1;
     }
 
     // Close the file
-    closeFile.open = false;
+    closeFile->open = false;
 
     // If for some reason, the file doesn't save, return an error
     if (saveFile(closeFile) != 0) {

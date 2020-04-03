@@ -9,7 +9,7 @@
             "type": "cppdbg",
             "request": "launch",
             "program": "${fileDirname}/lcloud_sim",
-            "args": ["-v", "cmpsc311-assign2-manifest.txt", "cmpsc311-assign2-workload.txt"],
+            "args": ["-v", "cmpsc311-assign3-manifest.txt", "cmpsc311-assign3-workload.txt"],
             "stopAtEntry": false,
             "cwd": "${fileDirname}",
             "environment": [],
