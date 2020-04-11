@@ -545,11 +545,6 @@ int lcread(LcFHandle fh, char *buf, size_t len) {
             readBlock = calcBlock(readFile->blocks[++blockIndex]);
             readSector = calcSector(readFile->blocks[blockIndex]);
             readDevice = calcDevice(readFile->blocks[blockIndex]);
-
-            // Reset readBuffer
-            for (int i = 0; i < LC_DEVICE_BLOCK_SIZE; i++) {
-                readBuffer[i] = 0;
-            }
         }
         // Read the rest of the data
         if (readDataBlock(readDevice, readSector, readBlock, readBuffer) != 0) {
@@ -600,7 +595,6 @@ int lcwrite(LcFHandle fh, char *buf, size_t len) {
     char writeBuffer[LC_DEVICE_BLOCK_SIZE];
 
     // Retrieve the current block data and calculate the offset with pos
-    // block index = pos / LC_DEVICE_BLOCK_SIZE
     // calculate device, sector, and block using block pointer math
     uint16_t blockIndex = writeFile->pos / LC_DEVICE_BLOCK_SIZE;
     uint16_t writeBlock = calcBlock(writeFile->blocks[blockIndex]);
@@ -614,7 +608,7 @@ int lcwrite(LcFHandle fh, char *buf, size_t len) {
         return -1;
     }
 
-    // If it's greater than a block size, we'll need to write tot he next block
+    // If it's greater than a block size, we'll need to write to the next block
     if (len+offsetByteFromBlock <= LC_DEVICE_BLOCK_SIZE) {
         memcpy(&writeBuffer[offsetByteFromBlock], &buf[0], len);
         if (writeDataBlock(writeDevice, writeSector, writeBlock, writeBuffer) != 0) {
@@ -634,10 +628,16 @@ int lcwrite(LcFHandle fh, char *buf, size_t len) {
             offsetByteFromBlock = 0;
 
             // Use logic to increment block and sector to next available block
-            writeBlock = calcBlock(fileCursor);
-            writeSector = calcSector(fileCursor);
-            writeDevice = calcDevice(fileCursor);
-            writeFile->blocks[++blockIndex] = fileCursor++;
+            if (!writeFile->blocks[++blockIndex]) {
+                writeBlock = calcBlock(fileCursor);
+                writeSector = calcSector(fileCursor);
+                writeDevice = calcDevice(fileCursor);
+                writeFile->blocks[blockIndex] = fileCursor++;
+            } else {
+                writeBlock = calcBlock(writeFile->blocks[blockIndex]);
+                writeSector = calcSector(writeFile->blocks[blockIndex]);
+                writeDevice = calcDevice(writeFile->blocks[blockIndex]);
+            }
             if (devices[writeDevice].active == false) {
                 writeDevice = selectNextDevice(writeDevice);
                 // No more devices to write to
@@ -652,12 +652,12 @@ int lcwrite(LcFHandle fh, char *buf, size_t len) {
             }
 
             // Reset writeBuffer
-            for (int i = 0; i < LC_DEVICE_BLOCK_SIZE; i++) {
-                writeBuffer[i] = 0;
+            if (readDataBlock(writeDevice, writeSector, writeBlock, writeBuffer) != 0) {
+                return -1;
             }
-        }
+        }        
         // Write the remainder of the data to the last block
-        memcpy(&writeBuffer[offsetByteFromBlock], &buf[bufOffset], LC_DEVICE_BLOCK_SIZE-offsetByteFromBlock);
+        memcpy(&writeBuffer[offsetByteFromBlock], &buf[bufOffset], len-bufOffset);
         if (writeDataBlock(writeDevice, writeSector, writeBlock, writeBuffer) != 0) {
             return -1;
         }
@@ -670,7 +670,7 @@ int lcwrite(LcFHandle fh, char *buf, size_t len) {
     }
 
     // If the block index increases
-    if ((writeFile->pos / LC_DEVICE_BLOCK_SIZE) > blockIndex ) {
+    if ((writeFile->pos / LC_DEVICE_BLOCK_SIZE) > blockIndex && writeFile->blocks[writeFile->pos / LC_DEVICE_BLOCK_SIZE] == 0) {
         writeFile->blocks[writeFile->pos / LC_DEVICE_BLOCK_SIZE] = fileCursor++;
     }
 
