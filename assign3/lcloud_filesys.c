@@ -180,13 +180,14 @@ int findEmptyFile(void) {
 //
 // Inputs       : absBlock - The absolute block
 // Outputs      : Device number - Device which stores absBlock
-int calcDevice(int absBlock) {
+uint8_t calcDevice(int absBlock) {
     for (int i = 0; i < MAX_DEVICES; i++) {
         absBlock -= devices[i].totalBlocks;
         if (absBlock < 0) {
             return i;
         }
     }
+    return -1;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -196,7 +197,7 @@ int calcDevice(int absBlock) {
 //
 // Inputs       : absBlock - The absolute block
 // Outputs      : Sector number - The sector on the device
-int calcSector(int absBlock) {
+uint16_t calcSector(int absBlock) {
     // Find calculate device, absblock becomes block on device
     for (int i = 0; i < MAX_DEVICES; i++) {
         absBlock -= devices[i].totalBlocks;
@@ -206,6 +207,7 @@ int calcSector(int absBlock) {
             return absBlock / devices[i].blocks;
         }
     }
+    return -1;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -215,7 +217,7 @@ int calcSector(int absBlock) {
 //
 // Inputs       : absBlock - The absolute block
 // Outputs      : Block number - Block in sector on device
-int calcBlock(int absBlock) {
+uint16_t calcBlock(int absBlock) {
     // Find calculate device, absblock becomes block on device
     for (int i = 0; i < MAX_DEVICES; i++) {
         absBlock -= devices[i].totalBlocks;
@@ -225,6 +227,7 @@ int calcBlock(int absBlock) {
             return absBlock % devices[i].blocks;
         }
     }
+    return -1;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -503,6 +506,9 @@ int lcread(LcFHandle fh, char *buf, size_t len) {
     uint16_t readBlock = calcBlock(readFile->blocks[blockIndex]);
     uint16_t readSector = calcSector(readFile->blocks[blockIndex]);
     uint8_t readDevice = calcDevice(readFile->blocks[blockIndex]);
+    if (readBlock == (uint16_t)-1 || readSector == (uint16_t)-1 || readDevice == (uint8_t)-1) {
+        return -1;
+    }
 
     // offset index from returned buffer = pos % LC_DEVICE_BLOCK_SIZE
     uint8_t offsetByteFromBlock = readFile->pos % LC_DEVICE_BLOCK_SIZE;
@@ -564,6 +570,9 @@ int lcread(LcFHandle fh, char *buf, size_t len) {
             readBlock = calcBlock(readFile->blocks[++blockIndex]);
             readSector = calcSector(readFile->blocks[blockIndex]);
             readDevice = calcDevice(readFile->blocks[blockIndex]);
+            if (readBlock == (uint16_t)-1 || readSector == (uint16_t)-1 || readDevice == (uint8_t)-1) {
+                return -1;
+            }
         }
         // Read the rest of the data
         if (readDataBlock(readDevice, readSector, readBlock, readBuffer, true) != 0) {
@@ -619,6 +628,9 @@ int lcwrite(LcFHandle fh, char *buf, size_t len) {
     uint16_t writeBlock = calcBlock(writeFile->blocks[blockIndex]);
     uint16_t writeSector = calcSector(writeFile->blocks[blockIndex]);
     uint8_t writeDevice = calcDevice(writeFile->blocks[blockIndex]);
+    if (writeBlock == (uint16_t)-1 || writeSector == (uint16_t)-1 || writeDevice == (uint8_t)-1) {
+        return -1;
+    }
 
     // offset index from returned buffer = pos % LC_DEVICE_BLOCK_SIZE
     uint8_t offsetByteFromBlock = writeFile->pos % LC_DEVICE_BLOCK_SIZE;
@@ -658,6 +670,9 @@ int lcwrite(LcFHandle fh, char *buf, size_t len) {
                 writeBlock = calcBlock(writeFile->blocks[blockIndex]);
                 writeSector = calcSector(writeFile->blocks[blockIndex]);
                 writeDevice = calcDevice(writeFile->blocks[blockIndex]);
+            }
+            if (writeBlock == (uint16_t)-1 || writeSector == (uint16_t)-1 || writeDevice == (uint8_t)-1) {
+                return -1;
             }
             if (devices[writeDevice].active == false) {
                 writeDevice = selectNextDevice(writeDevice);

@@ -1,6 +1,6 @@
 #
-# CMPSC311 - LionCloud Device - Assignment #2
-# Makefile - makefile to build the base system
+# CMPSC311 - LionCloud Device - Assignment #3
+# Makefile - makefile to build the base system (with caching)
 #
 
 # Locations
