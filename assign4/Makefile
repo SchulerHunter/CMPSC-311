@@ -23,18 +23,20 @@ AR=ar
 	
 # Files
 OBJECT_FILES=	lcloud_sim.o \
-				lcloud_filesys.o
+				lcloud_filesys.o \
+				lcloud_cache.o \
+				lcloud_client.o
 				
 # Productions
-all : lcloud_sim
+all : lcloud_client
 
 # Check environment dependencies
 prebuild:
 	./cmpsc311_prebuild
 
-lcloud_sim : prebuild $(OBJECT_FILES)
+lcloud_client : prebuild $(OBJECT_FILES)
 	$(CC) $(LINKARGS) $(OBJECT_FILES) -o $@ $(LIBS)
 
 clean : 
-	rm -f lcloud_sim $(OBJECT_FILES) 
+	rm -f lcloud_sim lcloud_client $(OBJECT_FILES) 
 	
