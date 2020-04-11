@@ -9,7 +9,7 @@
             "command": "/usr/bin/make",
             "group": "build",
             "options": {
-                "cwd": "${workspaceRoot}/assign3"
+                "cwd": "${workspaceRoot}/assign4"
             }
         }
     ]
