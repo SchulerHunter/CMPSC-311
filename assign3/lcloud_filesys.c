@@ -414,7 +414,7 @@ int powerOn(void) {
     fileCursor = 0;
 
     // Initialize lcloud cache
-    if (lcloud_initcache(maxFiles) != 0) {
+    if (lcloud_initcache(LC_CACHE_MAXBLOCKS) != 0) {
         return -1;
     }
 

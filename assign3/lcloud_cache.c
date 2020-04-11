@@ -20,7 +20,6 @@
 uint32_t cacheHits = 0;
 uint32_t cacheMisses = 0;
 uint32_t oldestBlock = 0;
-uint32_t size = 0;
 struct cacheBlock **cache;
 struct cacheBlock{
     LcDeviceId deviceId;
@@ -39,7 +38,7 @@ struct cacheBlock{
 //                blk - block number of block to find
 // Outputs      : cache block if found (pointer), NULL if not or failure
 char *lcloud_getcache(LcDeviceId did, uint16_t sec, uint16_t blk) {
-    for (int i = 0; i < size; i++) {
+    for (int i = 0; i < LC_CACHE_MAXBLOCKS; i++) {
         // Enables early truncation in linear search
         if (cache[i]->deviceId == (LcDeviceId)-1) {
             cacheMisses += 1;
@@ -67,7 +66,7 @@ char *lcloud_getcache(LcDeviceId did, uint16_t sec, uint16_t blk) {
 // Outputs      : 0 if succesfully inserted, -1 if failure
 int lcloud_putcache(LcDeviceId did, uint16_t sec, uint16_t blk, char *block) {
     // Check if the block exists in the cache
-    for (int i = 0; i < size; i++) {
+    for (int i = 0; i < LC_CACHE_MAXBLOCKS; i++) {
         // Enables early truncation in linear search
         if (cache[i]->deviceId == (LcDeviceId)-1) {
             break;
@@ -84,7 +83,7 @@ int lcloud_putcache(LcDeviceId did, uint16_t sec, uint16_t blk, char *block) {
     cache[oldestBlock]->sectorId = sec;
     cache[oldestBlock]->blockId = blk;
     memcpy(cache[oldestBlock++]->data, block, LC_DEVICE_BLOCK_SIZE);
-    oldestBlock %= size;
+    oldestBlock %= LC_CACHE_MAXBLOCKS;
     return(0);
 }
 
@@ -96,9 +95,8 @@ int lcloud_putcache(LcDeviceId did, uint16_t sec, uint16_t blk, char *block) {
 // Inputs       : maxblocks - the max number number of blocks 
 // Outputs      : 0 if successful, -1 if failure
 int lcloud_initcache(int maxblocks) {
-    size = (maxblocks * .02);
-    cache = malloc(size * (sizeof(struct cacheBlock)));
-    for (int i = 0; i < size; i++){
+    cache = malloc(LC_CACHE_MAXBLOCKS * (sizeof(struct cacheBlock)));
+    for (int i = 0; i < LC_CACHE_MAXBLOCKS; i++){
         struct cacheBlock *block = malloc(sizeof(struct cacheBlock));
         block->deviceId = -1;
         cache[i] = block;
