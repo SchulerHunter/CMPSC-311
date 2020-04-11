@@ -16,6 +16,7 @@
 // Project include files
 #include <lcloud_filesys.h>
 #include <lcloud_controller.h>
+#include <lcloud_cache.h>
 
 // Define max values
 #define MAX_NAME_LENGTH 256 // Max allowed name length
@@ -301,6 +302,10 @@ int writeDataBlock(uint8_t dev, uint16_t sec, uint16_t block, char *buf) {
     if (resp.B0 != RECIEVE || resp.B1 != SUCCESS || resp.C0 != LC_BLOCK_XFER) {
         return -1;
     }
+    // Put the newly written block in to the cache
+    if (lcloud_putcache(dev, sec, block, buf) != 0) {
+        return -1;
+    }
     return 0;
 }
 
@@ -312,12 +317,22 @@ int writeDataBlock(uint8_t dev, uint16_t sec, uint16_t block, char *buf) {
 // Inputs       : dev - the integer value of the device to read from
 //                sec - the integer value of the sector to read from (relative to the device)
 //                block - the integer value of the block to read from (relative to the sector)
+//                buf - the character buffer the device will write to
+//                writeToCache - a boolean to determine if the result should be written to the cache
 // Outputs      : 0 if successful, -1 if failure
-int readDataBlock(uint8_t dev, uint16_t sec, uint16_t block, char *buf) {
-    LCUnpackedRegisters resp = unpackRegisters(lcloud_io_bus(packRegisters(SEND_B0, SEND_B1, LC_BLOCK_XFER, dev, LC_XFER_READ, sec, block), buf));
-    // If they don't return success, throw an error
-    if (resp.B0 != RECIEVE || resp.B1 != SUCCESS || resp.C0 != LC_BLOCK_XFER) {
-        return -1;
+int readDataBlock(uint8_t dev, uint16_t sec, uint16_t block, char *buf, bool writeToCache) {
+    char *tempBuf = lcloud_getcache(dev, sec, block);
+    if (tempBuf == NULL) {
+        LCUnpackedRegisters resp = unpackRegisters(lcloud_io_bus(packRegisters(SEND_B0, SEND_B1, LC_BLOCK_XFER, dev, LC_XFER_READ, sec, block), buf));
+        // If they don't return success, throw an error
+        if (resp.B0 != RECIEVE || resp.B1 != SUCCESS || resp.C0 != LC_BLOCK_XFER) {
+            return -1;
+        }
+        if (writeToCache && lcloud_putcache(dev, sec, block, buf) != 0) {
+            return -1;
+        }
+    } else {
+        memcpy(buf, tempBuf, LC_DEVICE_BLOCK_SIZE);
     }
     return 0;
 }
@@ -397,6 +412,11 @@ int powerOn(void) {
         files[i] = file;
     }
     fileCursor = 0;
+
+    // Initialize lcloud cache
+    if (lcloud_initcache(maxFiles) != 0) {
+        return -1;
+    }
 
     // Mark devices as turned on
     lc_on = true;
@@ -489,7 +509,7 @@ int lcread(LcFHandle fh, char *buf, size_t len) {
 
     // Check if offset+len is still within a block
     if (offsetByteFromBlock+len <= LC_DEVICE_BLOCK_SIZE) {
-        if (readDataBlock(readDevice, readSector, readBlock, readBuffer) != 0) {
+        if (readDataBlock(readDevice, readSector, readBlock, readBuffer, true) != 0) {
             return -1;
         }
         // Check if this will read to the end of the file
@@ -504,13 +524,12 @@ int lcread(LcFHandle fh, char *buf, size_t len) {
             }
             return len;
         }
-
         memcpy(&buf[0], &readBuffer[offsetByteFromBlock], len);
     } else {
         uint16_t bufOffset = 0;
         // Determine if length ends on the current block
         while (bufOffset+(LC_DEVICE_BLOCK_SIZE-offsetByteFromBlock) < len) {
-            if (readDataBlock(readDevice, readSector, readBlock, readBuffer) != 0) {
+            if (readDataBlock(readDevice, readSector, readBlock, readBuffer, true) != 0) {
                 return -1;
             }
 
@@ -547,7 +566,7 @@ int lcread(LcFHandle fh, char *buf, size_t len) {
             readDevice = calcDevice(readFile->blocks[blockIndex]);
         }
         // Read the rest of the data
-        if (readDataBlock(readDevice, readSector, readBlock, readBuffer) != 0) {
+        if (readDataBlock(readDevice, readSector, readBlock, readBuffer, true) != 0) {
             return -1;
         }
         memcpy(&buf[bufOffset], &readBuffer[offsetByteFromBlock], len-bufOffset);
@@ -604,7 +623,8 @@ int lcwrite(LcFHandle fh, char *buf, size_t len) {
     // offset index from returned buffer = pos % LC_DEVICE_BLOCK_SIZE
     uint8_t offsetByteFromBlock = writeFile->pos % LC_DEVICE_BLOCK_SIZE;
 
-    if (readDataBlock(writeDevice, writeSector, writeBlock, writeBuffer) != 0) {
+    // Read the first block to write to
+    if (readDataBlock(writeDevice, writeSector, writeBlock, writeBuffer, false) != 0) {
         return -1;
     }
 
@@ -619,6 +639,7 @@ int lcwrite(LcFHandle fh, char *buf, size_t len) {
         // Determine if length ends on the current block
         while (bufOffset+(LC_DEVICE_BLOCK_SIZE-offsetByteFromBlock) < len) {
             memcpy(&writeBuffer[offsetByteFromBlock], &buf[bufOffset], LC_DEVICE_BLOCK_SIZE-offsetByteFromBlock);
+            // Write block to device and update cache
             if (writeDataBlock(writeDevice, writeSector, writeBlock, writeBuffer) != 0) {
                 return -1;
             }
@@ -652,11 +673,11 @@ int lcwrite(LcFHandle fh, char *buf, size_t len) {
             }
 
             // Reset writeBuffer
-            if (readDataBlock(writeDevice, writeSector, writeBlock, writeBuffer) != 0) {
+            if (readDataBlock(writeDevice, writeSector, writeBlock, writeBuffer, false) != 0) {
                 return -1;
             }
-        }        
-        // Write the remainder of the data to the last block
+        }
+        // Write the remainder of the data to the last block, update cache
         memcpy(&writeBuffer[offsetByteFromBlock], &buf[bufOffset], len-bufOffset);
         if (writeDataBlock(writeDevice, writeSector, writeBlock, writeBuffer) != 0) {
             return -1;
@@ -765,6 +786,11 @@ int lcshutdown(void) {
 
         // Set devices to off
         lc_on = false;
+
+        // Dump cache
+        if (lcloud_closecache() != 0) {
+            return -1;
+        }
     }
 
     return 0;

@@ -15,9 +15,19 @@
 #include <cmpsc311_log.h>
 #include <lcloud_cache.h>
 
-
 //
-// Functions
+// Global variables
+uint32_t cacheHits = 0;
+uint32_t cacheMisses = 0;
+uint32_t oldestBlock = 0;
+uint32_t size = 0;
+struct cacheBlock **cache;
+struct cacheBlock{
+    LcDeviceId deviceId;
+    uint16_t sectorId;
+    uint16_t blockId;
+    char data[LC_DEVICE_BLOCK_SIZE];
+};
 
 ////////////////////////////////////////////////////////////////////////////////
 //
@@ -28,10 +38,22 @@
 //                sec - sector number of block to find
 //                blk - block number of block to find
 // Outputs      : cache block if found (pointer), NULL if not or failure
-
-char * lcloud_getcache( LcDeviceId did, uint16_t sec, uint16_t blk ) {
-    /* Return not found */
-    return( NULL );
+char *lcloud_getcache(LcDeviceId did, uint16_t sec, uint16_t blk) {
+    for (int i = 0; i < size; i++) {
+        // Enables early truncation in linear search
+        if (cache[i]->deviceId == (LcDeviceId)-1) {
+            cacheMisses += 1;
+            return(NULL);
+        }
+        // File checks
+        // Utilize short circuit comparison for more early truncation
+        if (cache[i]->deviceId == did && cache[i]->sectorId == sec && cache[i]->blockId == blk) {
+            cacheHits += 1;
+            return(cache[i]->data);
+        }
+    }
+    cacheMisses += 1;
+    return(NULL);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -43,10 +65,27 @@ char * lcloud_getcache( LcDeviceId did, uint16_t sec, uint16_t blk ) {
 //                sec - sector number of block to insert
 //                blk - block number of block to insert
 // Outputs      : 0 if succesfully inserted, -1 if failure
-
-int lcloud_putcache( LcDeviceId did, uint16_t sec, uint16_t blk, char *block ) {
-    /* Return successfully */
-    return( 0 );
+int lcloud_putcache(LcDeviceId did, uint16_t sec, uint16_t blk, char *block) {
+    // Check if the block exists in the cache
+    for (int i = 0; i < size; i++) {
+        // Enables early truncation in linear search
+        if (cache[i]->deviceId == (LcDeviceId)-1) {
+            break;
+        }
+        // File checks
+        // Utilize short circuit comparison for more early truncation
+        if (cache[i]->deviceId == did && cache[i]->sectorId == sec && cache[i]->blockId == blk) {
+            memcpy(cache[i]->data, block, LC_DEVICE_BLOCK_SIZE);
+            return(0);
+        }
+    }
+    // If the file doesn't exist, update the oldest
+    cache[oldestBlock]->deviceId = did;
+    cache[oldestBlock]->sectorId = sec;
+    cache[oldestBlock]->blockId = blk;
+    memcpy(cache[oldestBlock++]->data, block, LC_DEVICE_BLOCK_SIZE);
+    oldestBlock %= size;
+    return(0);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -56,10 +95,15 @@ int lcloud_putcache( LcDeviceId did, uint16_t sec, uint16_t blk, char *block ) {
 //
 // Inputs       : maxblocks - the max number number of blocks 
 // Outputs      : 0 if successful, -1 if failure
-
-int lcloud_initcache( int maxblocks ) {
-    /* Return successfully */
-    return( 0 );
+int lcloud_initcache(int maxblocks) {
+    size = (maxblocks * .02);
+    cache = malloc(size * (sizeof(struct cacheBlock)));
+    for (int i = 0; i < size; i++){
+        struct cacheBlock *block = malloc(sizeof(struct cacheBlock));
+        block->deviceId = -1;
+        cache[i] = block;
+    }
+    return(0);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -69,8 +113,8 @@ int lcloud_initcache( int maxblocks ) {
 //
 // Inputs       : none
 // Outputs      : 0 if successful, -1 if failure
-
-int lcloud_closecache( void ) {
-    /* Return successfully */
-    return( 0 );
+int lcloud_closecache(void) {
+    printf("Hits: %i\nMisses: %i\nRatio: %f\n", cacheHits, cacheMisses, (float)cacheHits/(cacheHits+cacheMisses));
+    free(cache);
+    return(0);
 }
