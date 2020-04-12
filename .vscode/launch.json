@@ -9,7 +9,7 @@
             "type": "cppdbg",
             "request": "launch",
             "program": "${fileDirname}/lcloud_client",
-            "args": ["-v", "workload/cmpsc311-assign4a-workload.txt"],
+            "args": ["-v", "workload/cmpsc311-assign4e-workload.txt"],
             "stopAtEntry": false,
             "cwd": "${fileDirname}",
             "environment": [],

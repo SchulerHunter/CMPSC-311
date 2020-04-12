@@ -414,6 +414,12 @@ int powerOn(void) {
         file->size = 0;
         file->open = false;
         files[i] = file;
+        // This loop shouldn't be necessary but for some reason it is
+        if (i == 0) {
+            for (int j = 0; j < maxFiles; j++) {
+                files[i]->blocks[j] = 0;
+            }
+        }
     }
     fileCursor = 0;
 
