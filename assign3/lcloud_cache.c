@@ -112,7 +112,9 @@ int lcloud_initcache(int maxblocks) {
 // Inputs       : none
 // Outputs      : 0 if successful, -1 if failure
 int lcloud_closecache(void) {
-    printf("Hits: %i\nMisses: %i\nRatio: %f\n", cacheHits, cacheMisses, (float)cacheHits/(cacheHits+cacheMisses));
+    logMessage(LOG_INFO_LEVEL, "Cache Hits: %i", cacheHits);
+    logMessage(LOG_INFO_LEVEL, "Cache Misses: %i", cacheMisses);
+    logMessage(LOG_INFO_LEVEL, "Cache Hit Ratio: %f", (float)cacheHits/(cacheHits+cacheMisses));
     free(cache);
     return(0);
 }
