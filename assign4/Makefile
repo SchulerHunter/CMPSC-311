@@ -1,19 +1,15 @@
 #
-# CMPSC311 - LionCloud Device - Assignment #2
-# Makefile - makefile to build the base system
+# CMPSC311 - LionCloud Device - Assignment #4
+# Makefile - makefile to build the augmented system
 #
 
-# Locations
 
 # Make environment
 INCLUDES=-I.
 CC=gcc
 CFLAGS=-I. -c -g -Wall $(INCLUDES)
 LINKARGS=-g
-LIBS=-L. -llcloudlib -lcmpsc311 -lgcrypt -lcurl
-AR=ar
-
-
+LIBS=-L. -lcmpsc311 -L. -lgcrypt -lpthread -lcurl
 
 # Suffix rules
 .SUFFIXES: .c .o
@@ -22,21 +18,23 @@ AR=ar
 	$(CC) $(CFLAGS)  -o $@ $<
 	
 # Files
-OBJECT_FILES=	lcloud_sim.o \
-				lcloud_filesys.o \
-				lcloud_cache.o \
-				lcloud_client.o
-				
+
+TARGETS=	lcloud_client \
+
+CLIENT_OBJECT_FILES=	lcloud_sim.o \
+						lcloud_filesys.o \
+						lcloud_cache.o \
+						lcloud_client.o 
+
 # Productions
-all : lcloud_client
+all : $(TARGETS)
 
 # Check environment dependencies
 prebuild:
 	./cmpsc311_prebuild
 
-lcloud_client : prebuild $(OBJECT_FILES)
-	$(CC) $(LINKARGS) $(OBJECT_FILES) -o $@ $(LIBS)
+lcloud_client : $(CLIENT_OBJECT_FILES) $(LCLOUDLIB)
+	$(CC) $(LINKARGS) $(CLIENT_OBJECT_FILES) -o $@  -llcloudlib $(LIBS)
 
 clean : 
-	rm -f lcloud_sim lcloud_client $(OBJECT_FILES) 
-	
+	rm -f $(TARGETS) $(CLIENT_OBJECT_FILES) 
