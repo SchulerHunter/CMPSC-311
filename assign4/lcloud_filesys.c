@@ -452,8 +452,8 @@ LcFHandle lcopen(const char *path) {
     struct LCFile *file = retrieveFileP(path);
 
     // If not, create it
-    int handle = generateHandle();
     if (file->size == -1) {
+        int handle = generateHandle();
         // Free the temporary storage used in the retrieve function, since it doesn't account for max array size
         free(file);
         int index = findEmptyFile();
@@ -465,8 +465,9 @@ LcFHandle lcopen(const char *path) {
         files[index]->size = 0;
         files[index]->open = true;
         files[index]->blocks[0] = fileCursor++;
+        return(handle);
     }
-    return(handle);
+    return (file->handle);
 } 
 
 ////////////////////////////////////////////////////////////////////////////////
