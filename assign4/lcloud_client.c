@@ -40,7 +40,7 @@ int client_socket = -1;
 // Inputs       : ip - the ip address to connect to
 //                port - the port the server is running on
 // Outputs      : Socket identifier
-int lcloud_client_connect(unsigned char *ip, uint16_t port){
+int lcloud_client_connect(char *ip, uint16_t port){
     struct sockaddr_in server;
     if (inet_pton(AF_INET, ip, &server.sin_addr) == -1) {
         return -1;
@@ -59,7 +59,6 @@ int lcloud_client_connect(unsigned char *ip, uint16_t port){
 
     return client_socket;
 }
-
 
 ////////////////////////////////////////////////////////////////////////////////
 //
@@ -83,7 +82,7 @@ LCloudRegisterFrame client_lcloud_bus_request( LCloudRegisterFrame reg, void *bu
     LcOperationCode C0 = (reg >> 48) & 0xFF;
 
     // Switch to network mode and send register
-    reg =htonll64(reg);
+    reg = htonll64(reg);
     if (write(client_socket, &reg, LCLOUD_NET_HEADER_SIZE) != LCLOUD_NET_HEADER_SIZE) {
         return -1;
     }
