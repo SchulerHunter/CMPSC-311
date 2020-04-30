@@ -5,7 +5,7 @@
 //                  communication protocol.
 //
 //  Author        : Hunter Schuler
-//  Last Modified : 4/11/2020
+//  Last Modified : 4/30/2020
 //
 
 // Include Files
@@ -23,6 +23,8 @@
 #include <lcloud_network.h>
 #include <lcloud_controller.h>
 #include <cmpsc311_log.h>
+#include <cmpsc311_util.h>
+
 //
 //  Global data
 typedef enum{READ, WRITE} xfer;
@@ -33,29 +35,6 @@ int client_socket = -1;
 
 ////////////////////////////////////////////////////////////////////////////////
 //
-// Function     : endianSwap
-// Description  : Swaps the endian-ness of the 64 bit number supplied
-// Inputs       : registerFrame - Register frame supplied
-// Outputs      : Register in swapped endian
-LCloudRegisterFrame endianSwap(LCloudRegisterFrame registerFrame) {
-    // Set up storage for return
-    LCloudRegisterFrame returnRegister;
-    uint8_t *data = (uint8_t *)&returnRegister;
-
-    // Swap data and return
-    data[0] = registerFrame >> 56;
-    data[1] = registerFrame >> 48;
-    data[2] = registerFrame >> 40;
-    data[3] = registerFrame >> 32;
-    data[4] = registerFrame >> 24;
-    data[5] = registerFrame >> 16;
-    data[6] = registerFrame >> 8;
-    data[7] = registerFrame >> 0;
-    return returnRegister;
-}
-
-////////////////////////////////////////////////////////////////////////////////
-//
 // Function     : lcloud_client_connect
 // Description  : Connects to the lcloud server
 // Inputs       : ip - the ip address to connect to
@@ -63,18 +42,18 @@ LCloudRegisterFrame endianSwap(LCloudRegisterFrame registerFrame) {
 // Outputs      : Socket identifier
 int lcloud_client_connect(unsigned char *ip, uint16_t port){
     struct sockaddr_in server;
-    if (inet_pton(AF_INET, ip, &server.sin_addr) <= 0) {
+    if (inet_pton(AF_INET, ip, &server.sin_addr) == -1) {
         return -1;
     }
     server.sin_family = AF_INET;
     server.sin_port = htons(port);
 
     client_socket = socket(AF_INET, SOCK_STREAM, 0);
-    if (client_socket < 0) {
+    if (client_socket == -1) {
         return -1;
     }
 
-    if(connect(client_socket, (struct sockaddr *)&server, sizeof(server)) < 0) {
+    if(connect(client_socket, (struct sockaddr *)&server, sizeof(server)) == -1) {
         return -1;
     }
 
@@ -92,9 +71,9 @@ int lcloud_client_connect(unsigned char *ip, uint16_t port){
 // Outputs      : the response structure encoded as needed
 LCloudRegisterFrame client_lcloud_bus_request( LCloudRegisterFrame reg, void *buf ) {
     // Check for open connection
-    if (client_socket < 0) {
+    if (client_socket == -1) {
         client_socket = lcloud_client_connect(LCLOUD_DEFAULT_IP, LCLOUD_DEFAULT_PORT);
-        if (client_socket < 0) {
+        if (client_socket == -1) {
             return -1;
         }
     }
@@ -104,15 +83,15 @@ LCloudRegisterFrame client_lcloud_bus_request( LCloudRegisterFrame reg, void *bu
     LcOperationCode C0 = (reg >> 48) & 0xFF;
 
     // Switch to network mode and send register
-    reg = endianSwap(reg);
-    if (write(client_socket, &reg, sizeof(LCloudRegisterFrame)) != sizeof(LCloudRegisterFrame)) {
+    reg =htonll64(reg);
+    if (write(client_socket, &reg, LCLOUD_NET_HEADER_SIZE) != LCLOUD_NET_HEADER_SIZE) {
         return -1;
     }
 
     // Case of transfer
     if (C0 == LC_BLOCK_XFER) {
         if (C2 == LC_XFER_READ) {
-            if (read(client_socket, &reg, sizeof(LCloudRegisterFrame)) != sizeof(LCloudRegisterFrame)) {
+            if (read(client_socket, &reg, LCLOUD_NET_HEADER_SIZE) != LCLOUD_NET_HEADER_SIZE) {
                 return -1;
             }
 
@@ -124,28 +103,25 @@ LCloudRegisterFrame client_lcloud_bus_request( LCloudRegisterFrame reg, void *bu
                 return -1;
             }
 
-            if (read(client_socket, &reg, sizeof(LCloudRegisterFrame)) != sizeof(LCloudRegisterFrame)) {
+            if (read(client_socket, &reg, LCLOUD_NET_HEADER_SIZE) != LCLOUD_NET_HEADER_SIZE) {
                 return -1;
             }
         } else {
             return -1;
         }
-    // Case of power off
-    } else if (C0 == LC_POWER_OFF) {
-        if (read(client_socket, &reg, sizeof(LCloudRegisterFrame)) != sizeof(LCloudRegisterFrame)) {
-            return -1;
-        }
-        // Close connection and reset socket
-        close(client_socket);
-        client_socket = -1;
     // All other cases
     } else {
-        if (read(client_socket, &reg, sizeof(LCloudRegisterFrame)) != sizeof(LCloudRegisterFrame)) {
+        if (read(client_socket, &reg, LCLOUD_NET_HEADER_SIZE) != LCLOUD_NET_HEADER_SIZE) {
             return -1;
+        }
+        if (C0 == LC_POWER_OFF) {
+            // Close connection and reset socket
+            close(client_socket);
+            client_socket = -1;
         }
     }
 
     // Swap register back to host mode
-    reg = endianSwap(reg);
+    reg = ntohll64(reg);
     return(reg);
 }
