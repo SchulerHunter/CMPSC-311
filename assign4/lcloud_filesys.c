@@ -5,7 +5,7 @@
 //                   filesystem interfaces.
 //
 //   Author        : Hunter Schuler
-//   Last Modified : 4/11/2020
+//   Last Modified : 4/30/2020
 //
 
 // Include files
@@ -399,6 +399,7 @@ int powerOn(void) {
             devices[i].totalBlocks = respInit.D0 * respInit.D1;
 
             // Increment max files
+            // Assumes worst case of 1 file per block on every block
             maxFiles += devices[i].totalBlocks;
         } else {
             devices[i].active = false;
@@ -406,9 +407,17 @@ int powerOn(void) {
         resp.D0 >>= 1;
     }
 
-    files = malloc(maxFiles*(sizeof(struct LCFile) + sizeof(uint16_t)*maxFiles));
+    // Using the logic decribed below, the total size of the file arrays will be the sum from 1 to maxFiles
+    // This is the only potential way to opetimize space consumption without using realloc or rewriting the entire structure
+    // Uses sum formula for the arrays. Compared to old formula, saves ((m^2-m)/2)*sizeof(uint16_t) bytes
+    // In the case of given manifest4e, this saves 83,430,903*size(uint16_t) bytes, or 1.33 gigabytes of memory
+    files = malloc(maxFiles*sizeof(struct LCFile) + (maxFiles*(maxFiles+1)/2)*sizeof(uint16_t));
     for (int i = 0; i < maxFiles; i++) {
-        struct LCFile *file = malloc(sizeof(struct LCFile) + sizeof(uint16_t)*maxFiles);
+        // Optimized so not every file has a max file sized array
+        // Uses idea that if there will be two files, then each file has 1 block
+        // the max size of the second file is all blocks - 1
+        // The last file can only be potentially 1 block, assuming every file prior uses 1
+        struct LCFile *file = malloc(sizeof(struct LCFile) + sizeof(uint16_t)*(maxFiles-i));
         // Create a simple dummy file for each of the possible files
         file->handle = -1;
         file->size = 0;
